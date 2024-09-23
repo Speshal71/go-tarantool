@@ -9,6 +9,9 @@ type Result struct {
 	ErrorCode uint
 	Error     error
 	Data      [][]interface{}
+	DataBytes []byte
+
+	marshaller msgp.Marshaler
 }
 
 func (r *Result) GetCommandID() uint {
@@ -20,6 +23,22 @@ func (r *Result) GetCommandID() uint {
 
 // MarshalMsg implements msgp.Marshaler
 func (r *Result) MarshalMsg(b []byte) (o []byte, err error) {
+	if r.marshaller == nil {
+		r.marshaller = defaultResultMarshaller{Result: r}
+	}
+	return r.marshaller.MarshalMsg(b)
+}
+
+func (r *Result) WithBytesMarshaller() *Result {
+	r.marshaller = bytesResultMarshaller{Result: r}
+	return r
+}
+
+type defaultResultMarshaller struct {
+	*Result
+}
+
+func (r defaultResultMarshaller) MarshalMsg(b []byte) (o []byte, err error) {
 	o = b
 	if r.Error != nil {
 		o = msgp.AppendMapHeader(o, 1)
@@ -32,6 +51,29 @@ func (r *Result) MarshalMsg(b []byte) (o []byte, err error) {
 			if o, err = msgp.AppendIntf(o, r.Data); err != nil {
 				return nil, err
 			}
+		} else {
+			o = msgp.AppendArrayHeader(o, 0)
+		}
+	}
+
+	return o, nil
+}
+
+type bytesResultMarshaller struct {
+	*Result
+}
+
+func (r bytesResultMarshaller) MarshalMsg(b []byte) (o []byte, err error) {
+	o = b
+	if r.Error != nil {
+		o = msgp.AppendMapHeader(o, 1)
+		o = msgp.AppendUint(o, KeyError)
+		o = msgp.AppendString(o, r.Error.Error())
+	} else {
+		o = msgp.AppendMapHeader(o, 1)
+		o = msgp.AppendUint(o, KeyData)
+		if len(r.DataBytes) != 0 {
+			o = append(o, r.DataBytes...)
 		} else {
 			o = msgp.AppendArrayHeader(o, 0)
 		}
@@ -70,6 +112,8 @@ func (r *Result) UnmarshalMsg(data []byte) (buf []byte, err error) {
 		case KeyData:
 			var i, j uint32
 
+			bufData := buf
+
 			if dl, buf, err = msgp.ReadArrayHeaderBytes(buf); err != nil {
 				return
 			}
@@ -96,18 +140,26 @@ func (r *Result) UnmarshalMsg(data []byte) (buf []byte, err error) {
 					}
 				}
 			}
+
+			bufRead := len(bufData) - len(buf)
+			bufData = bufData[:bufRead]
+			r.DataBytes = make([]byte, len(bufData))
+			copy(r.DataBytes, bufData)
+
 		case KeyError:
 			errorMessage, buf, err = msgp.ReadStringBytes(buf)
 			if err != nil {
 				return
 			}
 			r.Error = NewQueryError(r.ErrorCode, errorMessage)
+
 		default:
 			if buf, err = msgp.Skip(buf); err != nil {
 				return
 			}
 		}
 	}
+
 	return
 }
 
