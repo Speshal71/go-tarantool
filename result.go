@@ -2,14 +2,16 @@ package tarantool
 
 import (
 	"fmt"
+
 	"github.com/tinylib/msgp/msgp"
 )
 
 type Result struct {
+	RawBytes []byte
+
 	ErrorCode uint
 	Error     error
 	Data      [][]interface{}
-	DataBytes []byte
 
 	marshaller msgp.Marshaler
 }
@@ -64,22 +66,7 @@ type bytesResultMarshaller struct {
 }
 
 func (r bytesResultMarshaller) MarshalMsg(b []byte) (o []byte, err error) {
-	o = b
-	if r.Error != nil {
-		o = msgp.AppendMapHeader(o, 1)
-		o = msgp.AppendUint(o, KeyError)
-		o = msgp.AppendString(o, r.Error.Error())
-	} else {
-		o = msgp.AppendMapHeader(o, 1)
-		o = msgp.AppendUint(o, KeyData)
-		if len(r.DataBytes) != 0 {
-			o = append(o, r.DataBytes...)
-		} else {
-			o = msgp.AppendArrayHeader(o, 0)
-		}
-	}
-
-	return o, nil
+	return append(b, r.RawBytes...), nil
 }
 
 // UnmarshalMsg implements msgp.Unmarshaler
@@ -95,6 +82,15 @@ func (r *Result) UnmarshalMsg(data []byte) (buf []byte, err error) {
 	if len(buf) == 0 && r.ErrorCode == OKCommand {
 		return buf, nil
 	}
+
+	defer func() {
+		if err == nil {
+			rawPacketLength := len(data) - len(buf)
+			r.RawBytes = make([]byte, rawPacketLength)
+			copy(r.RawBytes, data[:rawPacketLength])
+		}
+	}()
+
 	l, buf, err = msgp.ReadMapHeaderBytes(buf)
 
 	if err != nil {
@@ -111,8 +107,6 @@ func (r *Result) UnmarshalMsg(data []byte) (buf []byte, err error) {
 		switch cd {
 		case KeyData:
 			var i, j uint32
-
-			bufData := buf
 
 			if dl, buf, err = msgp.ReadArrayHeaderBytes(buf); err != nil {
 				return
@@ -140,11 +134,6 @@ func (r *Result) UnmarshalMsg(data []byte) (buf []byte, err error) {
 					}
 				}
 			}
-
-			bufRead := len(bufData) - len(buf)
-			bufData = bufData[:bufRead]
-			r.DataBytes = make([]byte, len(bufData))
-			copy(r.DataBytes, bufData)
 
 		case KeyError:
 			errorMessage, buf, err = msgp.ReadStringBytes(buf)

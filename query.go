@@ -33,6 +33,6 @@ func NewQuery(cmd uint) Query {
 	case EvalCommand:
 		return &Eval{}
 	default:
-		return nil
+		return NewUnknownQuery(cmd)
 	}
 }

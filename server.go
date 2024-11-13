@@ -32,10 +32,14 @@ type IprotoServer struct {
 	firstError error
 	perf       PerfCount
 	schemaID   uint64
+
+	// asQueryServer forces incoming requests to be parsed as queries
+	asQueryServer bool
 }
 
 type IprotoServerOptions struct {
-	Perf PerfCount
+	Perf          PerfCount
+	AsQueryServer bool
 }
 
 func NewIprotoServer(uuid string, handler QueryHandler, onShutdown OnShutdownCallback) *IprotoServer {
@@ -55,6 +59,7 @@ func (s *IprotoServer) WithOptions(opts *IprotoServerOptions) *IprotoServer {
 		opts = &IprotoServerOptions{}
 	}
 	s.perf = opts.Perf
+	s.asQueryServer = opts.AsQueryServer
 	return s
 }
 
@@ -195,6 +200,9 @@ READER_LOOP:
 
 			go func(pp *BinaryPacket) {
 				packet := &pp.packet
+				if s.asQueryServer {
+					packet.AsQuery()
+				}
 
 				err := packet.UnmarshalBinary(pp.body)
 

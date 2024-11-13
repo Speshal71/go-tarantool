@@ -7,6 +7,10 @@ import (
 	"github.com/tinylib/msgp/msgp"
 )
 
+type PacketOpts struct {
+	asQuery bool
+}
+
 type Packet struct {
 	Cmd        uint
 	LSN        uint64
@@ -16,6 +20,15 @@ type Packet struct {
 	Timestamp  time.Time
 	Request    Query
 	Result     *Result
+
+	opts PacketOpts
+}
+
+// AsQuery forces packet to be unmarshaled as query even if it's not supported.
+func (pack *Packet) AsQuery() *Packet {
+	pack.opts.asQuery = true
+
+	return pack
 }
 
 func (pack *Packet) String() string {
@@ -114,7 +127,7 @@ func (pack *Packet) UnmarshalBinaryBody(data []byte) (buf []byte, err error) {
 		return unpackr(pack.Cmd^ErrorFlag, data)
 	}
 
-	if q := NewQuery(pack.Cmd); q != nil {
+	if q := NewQuery(pack.Cmd); IsKnownQuery(q) || pack.opts.asQuery {
 		return unpackq(q, data)
 	}
 	return unpackr(OKCommand, data)
@@ -128,7 +141,7 @@ func (pack *Packet) UnmarshalBinary(data []byte) error {
 
 // UnmarshalMsg implements msgp.Unmarshaler
 func (pack *Packet) UnmarshalMsg(data []byte) (buf []byte, err error) {
-	*pack = Packet{}
+	*pack = Packet{opts: pack.opts}
 
 	buf = data
 
